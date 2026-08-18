@@ -54,3 +54,11 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# СДЭК API docs (reference material, not project source)
+openapi_api_v2_integration.json
+Портал документации СДЭК API*.html
+Портал документации СДЭК API_files/
+
+# claude-flow local state
+.claude-flow/

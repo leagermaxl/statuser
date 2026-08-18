@@ -1,0 +1,42 @@
+version: '3.9'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: cdek-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme} --appendonly yes
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-changeme}', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - app-network
+
+  # Веб-интерфейс для просмотра данных Redis (удобно при отладке кэша/очередей)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    platform: linux/amd64
+    container_name: cdek-redis-commander
+    restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:${REDIS_PASSWORD:-changeme}
+    ports:
+      - '8081:8081'
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+volumes:
+  redis_data:
+
+networks:
+  app-network:
+    driver: bridge
