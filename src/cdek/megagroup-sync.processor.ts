@@ -4,7 +4,15 @@ import { Job } from 'bullmq';
 import { MegagroupService } from '../megagroup/megagroup.service';
 import { OrderStatusAttributesDto } from './dto/webhook/order-status-attributes.dto';
 
-@Processor('megagroup-sync')
+/**
+ * drainDelay/stalledInterval заметно снижены по частоте относительно дефолтов
+ * BullMQ (5с / 30с) — при пустой очереди воркер и так почти всегда пуст (заказы
+ * прилетают редко), а дефолты на бесплатном Upstash (лимит 500k команд/мес)
+ * сжигают весь месячный лимит одним только фоновым опросом холостой очереди.
+ * На задержку реальной обработки это не влияет: блокирующий pop будит воркер
+ * сразу при добавлении джобы, а не ждёт истечения drainDelay.
+ */
+@Processor('megagroup-sync', { drainDelay: 60, stalledInterval: 120_000 })
 export class MegagroupSyncProcessor extends WorkerHost {
 	private readonly logger = new Logger(MegagroupSyncProcessor.name);
 
