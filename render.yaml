@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: statuser
+    runtime: node
+    plan: free
+    region: frankfurt # ближайший к СДЭК/Megagroup из доступных Render-регионов; поменяйте при необходимости
+    buildCommand: yarn install --frozen-lockfile && yarn build
+    startCommand: node dist/main
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Значения ниже — секреты и креды сторонних сервисов, задаются вручную
+      # в дашборде Render (Settings -> Environment), а не хранятся в репозитории.
+      - key: ADMIN_API_TOKEN
+        sync: false
+      - key: MEGAGROUP_LOGIN
+        sync: false
+      - key: MEGAGROUP_PASSWORD
+        sync: false
+      - key: MEGAGROUP_SITE_ID
+        sync: false
+      - key: MEGAGROUP_CABINET_URL
+        sync: false
+      - key: MEGAGROUP_SHOP_ID
+        sync: false
+      - key: CDEK_URL
+        sync: false
+      - key: CDEK_CLIENT_ID
+        sync: false
+      - key: CDEK_CLIENT_SECRET
+        sync: false
+      - key: CDEK_WEBHOOK_SECRET
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      # SELF_URL не нужен — Render сам прокидывает RENDER_EXTERNAL_URL,
+      # на который и завязан self-ping (см. HealthPingService).
