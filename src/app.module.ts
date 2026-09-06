@@ -8,7 +8,9 @@ import Joi from 'joi';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { CdekModule } from './cdek/cdek.module';
+import { HealthModule } from './health/health.module';
 import { MegagroupModule } from './megagroup/megagroup.module';
+import { TelegramModule } from './telegram/telegram.module';
 
 @Module({
 	imports: [
@@ -34,43 +36,43 @@ import { MegagroupModule } from './megagroup/megagroup.module';
 
 				CDEK_WEBHOOK_SECRET: Joi.string().required(),
 
-				REDIS_HOST: Joi.string().required(),
-				REDIS_PORT: Joi.number().default(6379),
-				REDIS_PASSWORD: Joi.string().allow('').optional(),
+				// redis:// для локали без TLS, rediss:// для управляемых Redis (Upstash
+				// и т.п.), которым TLS обязателен.
+				REDIS_URL: Joi.string()
+					.uri({ scheme: ['redis', 'rediss'] })
+					.required(),
+
+				TELEGRAM_BOT_TOKEN: Joi.string().required(),
+				TELEGRAM_CHAT_ID: Joi.string().required(),
+
+				// Внешний урл сервиса для self-ping (см. HealthPingService). На Render
+				// можно не задавать — там она приходит сама как RENDER_EXTERNAL_URL.
+				SELF_URL: Joi.string().uri().optional(),
 			}),
 		}),
 		CacheModule.registerAsync({
 			isGlobal: true,
 			imports: [ConfigModule],
 			inject: [ConfigService],
-			useFactory: (configService: ConfigService) => {
-				const host = configService.get<string>('REDIS_HOST');
-				const port = configService.get<number>('REDIS_PORT');
-				const password = configService.get<string>('REDIS_PASSWORD');
-
-				// Формируем стандартную строку подключения к Redis
-				const auth = password ? `default:${password}@` : '';
-				const redisUrl = `redis://${auth}${host}:${port}`;
-
-				return {
-					store: createKeyv(redisUrl),
-				};
-			},
+			useFactory: (configService: ConfigService) => ({
+				store: createKeyv(configService.getOrThrow<string>('REDIS_URL')),
+			}),
 		}),
 		BullModule.forRootAsync({
 			imports: [ConfigModule],
 			inject: [ConfigService],
 			useFactory: (configService: ConfigService) => ({
-				connection: {
-					host: configService.get<string>('REDIS_HOST'),
-					port: configService.get<number>('REDIS_PORT'),
-					password: configService.get<string>('REDIS_PASSWORD'),
-				},
+				// url (а не host/port/password по отдельности) — единственный способ
+				// передать BullMQ TLS-подключение (rediss://) без ручной сборки tls-опций:
+				// сам ioredis включает TLS по схеме "rediss:" в урле.
+				connection: { url: configService.getOrThrow<string>('REDIS_URL') },
 			}),
 		}),
 		HttpModule,
 		MegagroupModule,
 		CdekModule,
+		TelegramModule,
+		HealthModule,
 	],
 	controllers: [AppController],
 	providers: [AppService],

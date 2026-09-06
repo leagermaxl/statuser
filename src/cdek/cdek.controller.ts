@@ -14,12 +14,12 @@ import {
 import { ApiOperation, ApiParam, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { HttpStatusCode } from 'axios';
 import { Queue } from 'bullmq';
+import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
 import { CdekService } from './cdek.service';
 import { CreateOrderCdekDto } from './dto/order/create-order.dto';
 import { UpdateOrderCdekDto } from './dto/order/update-order.dto';
 import { OrderStatusWebhookDto } from './dto/webhook/order-status-webhook.dto';
 import { SubscribeCdekDto } from './dto/webhook/subscribe-cdek.dto';
-import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
 import { CdekWebhookSignatureGuard } from './guards/cdek-webhook-signature.guard';
 
 @ApiTags('cdek')

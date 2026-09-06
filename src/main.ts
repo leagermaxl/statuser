@@ -3,9 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { TelegramLogger } from './telegram/telegram.logger';
 
 async function bootstrap() {
-	const app = await NestFactory.create(AppModule);
+	// bufferLogs копит логи бутстрапа до вызова useLogger(), чтобы они тоже
+	// прошли через TelegramLogger, а не только логи после старта приложения.
+	const app = await NestFactory.create(AppModule, { bufferLogs: true });
+	app.useLogger(app.get(TelegramLogger));
+
+	// Без этого Nest не слушает SIGTERM/SIGINT вообще, и onApplicationShutdown
+	// (которым @nestjs/bullmq закрывает BullMQ Worker'ы) никогда не вызывается —
+	// при рестарте/редеплое активная джоба обрывается на середине, а не
+	// доигрывается перед закрытием воркера.
+	app.enableShutdownHooks();
 
 	app.useGlobalPipes(
 		new ValidationPipe({
