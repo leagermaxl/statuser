@@ -17,6 +17,11 @@ jest.mock('tough-cookie', () => ({
 	CookieJar: jest.fn(),
 }));
 
+// resolveForDebug() дёргает реальный DNS — глушим, чтобы тесты не ходили в сеть.
+jest.mock('node:dns/promises', () => ({
+	lookup: jest.fn().mockResolvedValue({ address: '127.0.0.1', family: 4 }),
+}));
+
 const CONFIG: Record<string, string> = {
 	MEGAGROUP_CABINET_URL: 'https://cabinet.megagroup.ru',
 	MEGAGROUP_LOGIN: 'login',

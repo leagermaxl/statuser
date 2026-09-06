@@ -6,6 +6,7 @@ import axios, { AxiosInstance, isAxiosError } from 'axios';
 import { wrapper } from 'axios-cookiejar-support';
 import type { Cache } from 'cache-manager';
 import FormData from 'form-data';
+import { lookup } from 'node:dns/promises';
 import { firstValueFrom } from 'rxjs';
 import { CookieJar } from 'tough-cookie';
 
@@ -69,6 +70,43 @@ export class MegagroupService {
 		private readonly httpService: HttpService,
 	) {}
 
+	/**
+	 * Временная диагностика ETIMEDOUT-ов к Megagroup с прод-окружения (Render):
+	 * резолвим хост тем же getaddrinfo, что использовал бы сам запрос, чтобы
+	 * увидеть, ведёт ли DNS оттуда на тот же IP, что и с других сетей.
+	 */
+	private async resolveForDebug(hostname: string): Promise<string> {
+		try {
+			const { address } = await lookup(hostname);
+			return address;
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			return `lookup failed: ${errorMessage}`;
+		}
+	}
+
+	/** Достаёт code/syscall/address/port из низкоуровневой сетевой ошибки под AxiosError, если они есть. */
+	private describeNetworkError(error: unknown): string {
+		if (!isAxiosError(error) || !(error.cause instanceof Error)) return '';
+
+		// Error не объявляет code/syscall/address/port в типах, но Node реально
+		// кладёт их в объект ошибки для сетевых сбоев (ECONNREFUSED/ETIMEDOUT/...).
+		const cause = error.cause as unknown as {
+			code?: string;
+			syscall?: string;
+			address?: string;
+			port?: number;
+		};
+		const parts = [
+			cause.code && `code=${cause.code}`,
+			cause.syscall && `syscall=${cause.syscall}`,
+			cause.address && `address=${cause.address}`,
+			cause.port && `port=${cause.port}`,
+		].filter(Boolean);
+
+		return parts.length ? ` [${parts.join(' ')}]` : '';
+	}
+
 	/** Полный цикл: логин в cabinet -> oauth-редирект в CMS шарда -> достаём mcsid. */
 	private async authenticate(): Promise<MegagroupSession> {
 		const cabinetUrl = this.configService.getOrThrow<string>('MEGAGROUP_CABINET_URL');
@@ -78,6 +116,12 @@ export class MegagroupService {
 
 		const jar = new CookieJar();
 		const client: AxiosInstance = wrapper(axios.create({ jar, maxRedirects: 15 }));
+		const startedAt = Date.now();
+		const cabinetHost = new URL(cabinetUrl).hostname;
+
+		this.logger.debug(
+			`Megagroup: логин -> ${cabinetHost} (resolve: ${await this.resolveForDebug(cabinetHost)})`,
+		);
 
 		// 1. Логин в общий кабинет -> mcmsid
 		const form = new FormData();
@@ -86,6 +130,7 @@ export class MegagroupService {
 		form.append('password', password);
 
 		await client.post(`${cabinetUrl}/user/login`, form, { headers: form.getHeaders() });
+		this.logger.debug(`Megagroup: логин прошёл за ${Date.now() - startedAt}мс`);
 
 		const hasMcmsid = (await jar.getCookies(cabinetUrl)).some((c) => c.key === 'mcmsid');
 		if (!hasMcmsid) {
@@ -95,7 +140,9 @@ export class MegagroupService {
 		}
 
 		// 2. Проходим oauth-редирект-цепочку в CMS нужного сайта -> mcsid шарда
+		const enterStartedAt = Date.now();
 		const enterResponse = await client.get(`${cabinetUrl}/users/${siteId}/enter`);
+		this.logger.debug(`Megagroup: oauth-редирект прошёл за ${Date.now() - enterStartedAt}мс`);
 
 		// follow-redirects (используется под капотом axios) простявляет реальный
 		// финальный URL после всех хопов сюда
@@ -133,7 +180,10 @@ export class MegagroupService {
 		const session: MegagroupSession = { domain, mcsid: mcsidCookie.value, verId, access };
 		await this.cacheManager.set(this.SESSION_CACHE_KEY, session, this.SESSION_TTL_MS);
 
-		this.logger.log(`Megagroup: получена новая сессия для ${domain}`);
+		this.logger.log(
+			`Megagroup: получена новая сессия для ${domain} ` +
+				`(resolve: ${await this.resolveForDebug(domain)}, весь логин занял ${Date.now() - startedAt}мс)`,
+		);
 
 		return session;
 	}
@@ -173,6 +223,12 @@ export class MegagroupService {
 	): Promise<T> {
 		const session = await this.getSession();
 		const { method = 'GET', params, data } = options;
+		const startedAt = Date.now();
+
+		this.logger.debug(
+			`Megagroup: ${method} ${path} -> ${session.domain} ` +
+				`(resolve: ${await this.resolveForDebug(session.domain)})`,
+		);
 
 		try {
 			const response = await firstValueFrom(
@@ -186,8 +242,13 @@ export class MegagroupService {
 				}),
 			);
 
+			this.logger.debug(
+				`Megagroup: ${method} ${path} успешно за ${Date.now() - startedAt}мс`,
+			);
+
 			return response.data;
 		} catch (error) {
+			const elapsedMs = Date.now() - startedAt;
 			const status = isAxiosError(error) ? error.response?.status : undefined;
 			// CMS редиректит на /attorney или /user/login, если сессия невалидна
 			const sessionLooksExpired =
@@ -195,14 +256,17 @@ export class MegagroupService {
 
 			if (sessionLooksExpired && !isRetry) {
 				this.logger.warn(
-					'Megagroup: mcsid недействителен, перелогиниваемся и повторяем запрос',
+					`Megagroup: mcsid недействителен (за ${elapsedMs}мс), перелогиниваемся и повторяем запрос`,
 				);
 				await this.cacheManager.del(this.SESSION_CACHE_KEY);
 				return this.callAdminApi(path, options, true);
 			}
 
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			this.logger.error(`Megagroup: ошибка запроса ${method} ${path}: ${errorMessage}`);
+			this.logger.error(
+				`Megagroup: ошибка запроса ${method} ${path} за ${elapsedMs}мс: ${errorMessage}` +
+					this.describeNetworkError(error),
+			);
 
 			throw error;
 		}
