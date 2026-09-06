@@ -4,7 +4,10 @@ services:
     runtime: node
     plan: free
     region: frankfurt # ближайший к СДЭК/Megagroup из доступных Render-регионов; поменяйте при необходимости
-    buildCommand: yarn install --frozen-lockfile && yarn build
+    # --production=false обязателен: NODE_ENV=production ниже иначе заставит
+    # yarn install пропустить devDependencies (в т.ч. @nestjs/cli, из-за чего
+    # "nest build" падает с "nest: not found") — на рантайм это не влияет.
+    buildCommand: yarn install --frozen-lockfile --production=false && yarn build
     startCommand: node dist/main
     healthCheckPath: /health
     envVars:
