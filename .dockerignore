@@ -1,0 +1,15 @@
+node_modules
+dist
+coverage
+.git
+.idea
+.claude
+.claude-flow
+.env
+.env.*
+!.env.example
+*.log
+Портал документации СДЭК API*.html
+Портал документации СДЭК API_files
+openapi_api_v2_integration.json
+simulate-cdek-webhook.sh
