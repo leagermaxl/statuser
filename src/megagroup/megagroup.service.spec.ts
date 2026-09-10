@@ -223,7 +223,6 @@ describe('MegagroupService', () => {
 			['POSTOMAT_RECEIVED', 3],
 			['NOT_DELIVERED', 4],
 			['INVALID', 4],
-			['RECEIVED_AT_SHIPMENT_WAREHOUSE', 2],
 		])('код СДЕК %s маппится в статус Megagroup %i', async (cdekCode, expectedStatusId) => {
 			httpService.request
 				.mockReturnValueOnce(of({ data: 'ORDER-42&nbsp;(555)' }))
@@ -259,6 +258,13 @@ describe('MegagroupService', () => {
 					is_payment: 1,
 				});
 			}
+		});
+
+		it('не трогает Megagroup для нефинальных статусов СДЕК (например, RECEIVED_AT_SHIPMENT_WAREHOUSE)', async () => {
+			await service.updateOrderStatus('cdek-1', 'ORDER-42', 'RECEIVED_AT_SHIPMENT_WAREHOUSE');
+
+			expect(httpService.request).not.toHaveBeenCalled();
+			expect(cacheManager.get).not.toHaveBeenCalled();
 		});
 
 		it('падает, если заказ с таким номером не найден в списке CMS', async () => {

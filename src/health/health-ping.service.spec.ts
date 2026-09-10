@@ -4,9 +4,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { of, throwError } from 'rxjs';
 import { HealthPingService } from './health-ping.service';
 
+// Должно совпадать с private PING_INTERVAL_MS в самом сервисе.
+const PING_INTERVAL_MS = 2 * 60 * 1000;
+
 describe('HealthPingService', () => {
 	let httpService: { get: jest.Mock };
 	let configService: { get: jest.Mock };
+	// Отслеживаем последний созданный инстанс, чтобы гарантированно остановить его
+	// setInterval в afterEach — иначе непогашенный интервал одного теста продолжает
+	// тикать в следующих (setInterval пережил переключение fake -> real -> fake timers).
+	let currentService: HealthPingService | undefined;
 	const originalRenderUrl = process.env.RENDER_EXTERNAL_URL;
 
 	async function createService(): Promise<HealthPingService> {
@@ -18,17 +25,20 @@ describe('HealthPingService', () => {
 			],
 		}).compile();
 
-		return module.get(HealthPingService);
+		currentService = module.get(HealthPingService);
+		return currentService;
 	}
 
 	beforeEach(() => {
 		jest.useFakeTimers();
 		httpService = { get: jest.fn() };
 		configService = { get: jest.fn() };
+		currentService = undefined;
 		delete process.env.RENDER_EXTERNAL_URL;
 	});
 
 	afterEach(() => {
+		currentService?.onModuleDestroy();
 		jest.useRealTimers();
 		jest.clearAllMocks();
 		if (originalRenderUrl === undefined) {
@@ -43,7 +53,7 @@ describe('HealthPingService', () => {
 
 		const service = await createService();
 		service.onApplicationBootstrap();
-		jest.advanceTimersByTime(10 * 60 * 1000);
+		jest.advanceTimersByTime(PING_INTERVAL_MS);
 
 		expect(httpService.get).not.toHaveBeenCalled();
 	});
@@ -55,7 +65,7 @@ describe('HealthPingService', () => {
 
 		const service = await createService();
 		service.onApplicationBootstrap();
-		jest.advanceTimersByTime(10 * 60 * 1000);
+		jest.advanceTimersByTime(PING_INTERVAL_MS);
 
 		expect(httpService.get).toHaveBeenCalledWith('https://from-config.example.com/health');
 	});
@@ -67,21 +77,21 @@ describe('HealthPingService', () => {
 
 		const service = await createService();
 		service.onApplicationBootstrap();
-		jest.advanceTimersByTime(10 * 60 * 1000);
+		jest.advanceTimersByTime(PING_INTERVAL_MS);
 
 		expect(httpService.get).toHaveBeenCalledWith('https://from-render.example.com/health');
 	});
 
-	it('пингует раз в 10 минут и не падает при ошибке запроса', async () => {
+	it('пингует с заданным интервалом и не падает при ошибке запроса', async () => {
 		configService.get.mockReturnValue('https://app.example.com');
 		httpService.get.mockReturnValue(throwError(() => new Error('network error')));
 
 		const service = await createService();
 		service.onApplicationBootstrap();
 
-		jest.advanceTimersByTime(10 * 60 * 1000);
+		jest.advanceTimersByTime(PING_INTERVAL_MS);
 		await Promise.resolve();
-		jest.advanceTimersByTime(10 * 60 * 1000);
+		jest.advanceTimersByTime(PING_INTERVAL_MS);
 		await Promise.resolve();
 
 		expect(httpService.get).toHaveBeenCalledTimes(2);

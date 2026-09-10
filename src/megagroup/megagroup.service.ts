@@ -6,7 +6,6 @@ import axios, { AxiosInstance, isAxiosError } from 'axios';
 import { wrapper } from 'axios-cookiejar-support';
 import type { Cache } from 'cache-manager';
 import FormData from 'form-data';
-import { lookup } from 'node:dns/promises';
 import { firstValueFrom } from 'rxjs';
 import { CookieJar } from 'tough-cookie';
 
@@ -70,21 +69,6 @@ export class MegagroupService {
 		private readonly httpService: HttpService,
 	) {}
 
-	/**
-	 * Временная диагностика ETIMEDOUT-ов к Megagroup с прод-окружения (Render):
-	 * резолвим хост тем же getaddrinfo, что использовал бы сам запрос, чтобы
-	 * увидеть, ведёт ли DNS оттуда на тот же IP, что и с других сетей.
-	 */
-	private async resolveForDebug(hostname: string): Promise<string> {
-		try {
-			const { address } = await lookup(hostname);
-			return address;
-		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
-			return `lookup failed: ${errorMessage}`;
-		}
-	}
-
 	/** Достаёт code/syscall/address/port из низкоуровневой сетевой ошибки под AxiosError, если они есть. */
 	private describeNetworkError(error: unknown): string {
 		if (!isAxiosError(error) || !(error.cause instanceof Error)) return '';
@@ -116,12 +100,6 @@ export class MegagroupService {
 
 		const jar = new CookieJar();
 		const client: AxiosInstance = wrapper(axios.create({ jar, maxRedirects: 15 }));
-		const startedAt = Date.now();
-		const cabinetHost = new URL(cabinetUrl).hostname;
-
-		this.logger.debug(
-			`Megagroup: логин -> ${cabinetHost} (resolve: ${await this.resolveForDebug(cabinetHost)})`,
-		);
 
 		// 1. Логин в общий кабинет -> mcmsid
 		const form = new FormData();
@@ -130,7 +108,6 @@ export class MegagroupService {
 		form.append('password', password);
 
 		await client.post(`${cabinetUrl}/user/login`, form, { headers: form.getHeaders() });
-		this.logger.debug(`Megagroup: логин прошёл за ${Date.now() - startedAt}мс`);
 
 		const hasMcmsid = (await jar.getCookies(cabinetUrl)).some((c) => c.key === 'mcmsid');
 		if (!hasMcmsid) {
@@ -140,9 +117,7 @@ export class MegagroupService {
 		}
 
 		// 2. Проходим oauth-редирект-цепочку в CMS нужного сайта -> mcsid шарда
-		const enterStartedAt = Date.now();
 		const enterResponse = await client.get(`${cabinetUrl}/users/${siteId}/enter`);
-		this.logger.debug(`Megagroup: oauth-редирект прошёл за ${Date.now() - enterStartedAt}мс`);
 
 		// follow-redirects (используется под капотом axios) простявляет реальный
 		// финальный URL после всех хопов сюда
@@ -180,10 +155,7 @@ export class MegagroupService {
 		const session: MegagroupSession = { domain, mcsid: mcsidCookie.value, verId, access };
 		await this.cacheManager.set(this.SESSION_CACHE_KEY, session, this.SESSION_TTL_MS);
 
-		this.logger.log(
-			`Megagroup: получена новая сессия для ${domain} ` +
-				`(resolve: ${await this.resolveForDebug(domain)}, весь логин занял ${Date.now() - startedAt}мс)`,
-		);
+		this.logger.log(`Megagroup: получена новая сессия для ${domain}`);
 
 		return session;
 	}
@@ -225,11 +197,6 @@ export class MegagroupService {
 		const { method = 'GET', params, data } = options;
 		const startedAt = Date.now();
 
-		this.logger.debug(
-			`Megagroup: ${method} ${path} -> ${session.domain} ` +
-				`(resolve: ${await this.resolveForDebug(session.domain)})`,
-		);
-
 		try {
 			const response = await firstValueFrom(
 				this.httpService.request<T>({
@@ -240,10 +207,6 @@ export class MegagroupService {
 					headers: { Cookie: `mcsid=${session.mcsid}` },
 					maxRedirects: 0,
 				}),
-			);
-
-			this.logger.debug(
-				`Megagroup: ${method} ${path} успешно за ${Date.now() - startedAt}мс`,
 			);
 
 			return response.data;
@@ -335,9 +298,21 @@ export class MegagroupService {
 		orderNumber: string,
 		cdekStatusCode: string,
 	): Promise<void> {
+		const statusId = this.mapCdekStatusToMegagroupStatusId(cdekStatusCode);
+
+		// В Megagroup шлём только финальные статусы (доставлен/отказ) — промежуточные
+		// коды СДЕК (в пути, принят на складе и т.п.) сейчас никого не интересуют,
+		// а поиск заказа в CMS.S3 — лишний сетевой запрос на каждый такой вебхук.
+		if (statusId === MegagroupOrderStatusId.IN_PROGRESS) {
+			this.logger.log(
+				`Megagroup: заказ ${orderNumber} (СДЕК ${cdekNumber}, код ${cdekStatusCode}) — ` +
+					'нефинальный статус, синхронизация с Megagroup пропущена',
+			);
+			return;
+		}
+
 		const shopId = this.configService.getOrThrow<string>('MEGAGROUP_SHOP_ID');
 		const orderId = await this.findOrderId(orderNumber);
-		const statusId = this.mapCdekStatusToMegagroupStatusId(cdekStatusCode);
 
 		// Тело запроса дублирует то, что реально шлёт админка при смене статуса
 		// вручную (пустой ключ = status_id, xhr=1, rnd — антикэш).
