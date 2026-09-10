@@ -16,7 +16,7 @@ import { firstValueFrom } from 'rxjs';
 @Injectable()
 export class HealthPingService implements OnApplicationBootstrap, OnModuleDestroy {
 	private readonly logger = new Logger(HealthPingService.name);
-	private readonly PING_INTERVAL_MS = 10 * 60 * 1000;
+	private readonly PING_INTERVAL_MS = 2 * 60 * 1000;
 	private timer?: NodeJS.Timeout;
 
 	constructor(
