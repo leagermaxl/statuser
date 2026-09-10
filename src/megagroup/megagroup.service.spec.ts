@@ -227,6 +227,7 @@ describe('MegagroupService', () => {
 		])('код СДЕК %s маппится в статус Megagroup %i', async (cdekCode, expectedStatusId) => {
 			httpService.request
 				.mockReturnValueOnce(of({ data: 'ORDER-42&nbsp;(555)' }))
+				.mockReturnValueOnce(of({ data: 'ok' }))
 				.mockReturnValueOnce(of({ data: 'ok' }));
 
 			await service.updateOrderStatus('cdek-1', 'ORDER-42', cdekCode);
@@ -245,6 +246,19 @@ describe('MegagroupService', () => {
 					},
 				}),
 			);
+
+			const isDelivered = expectedStatusId === 3;
+			expect(httpService.request).toHaveBeenCalledTimes(isDelivered ? 3 : 2);
+
+			if (isDelivered) {
+				const calls = httpService.request.mock.calls as Array<[{ params: unknown }]>;
+				const paymentCallArgs = calls[2][0];
+				expect(paymentCallArgs.params).toMatchObject({
+					order_id: '555',
+					act: 'transaction_edit',
+					is_payment: 1,
+				});
+			}
 		});
 
 		it('падает, если заказ с таким номером не найден в списке CMS', async () => {
@@ -258,6 +272,7 @@ describe('MegagroupService', () => {
 		it('не путает номер заказа с более длинным номером, содержащим его как подстроку', async () => {
 			httpService.request
 				.mockReturnValueOnce(of({ data: '9123&nbsp;(111) 123&nbsp;(222)' }))
+				.mockReturnValueOnce(of({ data: 'ok' }))
 				.mockReturnValueOnce(of({ data: 'ok' }));
 
 			await service.updateOrderStatus('cdek-1', '123', 'DELIVERED');

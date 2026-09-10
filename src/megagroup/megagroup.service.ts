@@ -312,6 +312,24 @@ export class MegagroupService {
 		return MegagroupOrderStatusId.IN_PROGRESS;
 	}
 
+	/**
+	 * Ставит галочку "оплата получена" у заказа — то же самое действие
+	 * (act=transaction_edit&is_payment=1), что шлёт админка при ручном
+	 * подтверждении оплаты. Проставляется вместе с переводом заказа в
+	 * статус "доставлен".
+	 */
+	private async markPaymentReceived(orderId: string): Promise<void> {
+		await this.callAdminApi('/-/cms/v1/shop2/order/', {
+			params: {
+				order_id: orderId,
+				act: 'transaction_edit',
+				is_payment: 1,
+				xhr: 1,
+				rnd: Math.floor(Math.random() * 1_000_000),
+			},
+		});
+	}
+
 	async updateOrderStatus(
 		cdekNumber: string,
 		orderNumber: string,
@@ -338,8 +356,13 @@ export class MegagroupService {
 			}),
 		});
 
+		if (statusId === MegagroupOrderStatusId.COMPLETED) {
+			await this.markPaymentReceived(orderId);
+		}
+
 		this.logger.log(
-			`Megagroup: заказ ${orderNumber} (order_id ${orderId}, СДЕК ${cdekNumber}) -> статус ${statusId}`,
+			`Megagroup: заказ ${orderNumber} (order_id ${orderId}, СДЕК ${cdekNumber}) -> статус ${statusId}` +
+				(statusId === MegagroupOrderStatusId.COMPLETED ? ' (оплата отмечена)' : ''),
 		);
 	}
 }
