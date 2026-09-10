@@ -28,11 +28,12 @@ describe('TelegramLogger', () => {
 		},
 	);
 
-	it('пересылает log с обычным контекстом приложения', () => {
+	it('пересылает log с обычным контекстом приложения в HTML-формате', () => {
 		logger.log('заказ обработан', 'CdekService');
 
 		expect(telegramService.sendMessage).toHaveBeenCalledWith(
-			'ℹ️ LOG\n[CdekService] заказ обработан',
+			'ℹ️ <b>LOG</b> · <code>CdekService</code>\n<pre>заказ обработан</pre>',
+			{ parse_mode: 'HTML' },
 		);
 	});
 
@@ -40,17 +41,48 @@ describe('TelegramLogger', () => {
 		logger.error('что-то сломалось', undefined, 'MegagroupService');
 
 		expect(telegramService.sendMessage).toHaveBeenCalledWith(
-			'🔴 ERROR\n[MegagroupService] что-то сломалось',
+			'🔴 <b>ERROR</b> · <code>MegagroupService</code>\n<pre>что-то сломалось</pre>',
+			{ parse_mode: 'HTML' },
 		);
 	});
 
-	it('пересылает warn/debug/verbose без контекста как есть', () => {
+	it('пересылает warn/verbose без контекста как есть', () => {
 		logger.warn('предупреждение');
-		logger.debug('дебаг');
 		logger.verbose('подробности');
 
-		expect(telegramService.sendMessage).toHaveBeenNthCalledWith(1, '🟡 WARN\nпредупреждение');
-		expect(telegramService.sendMessage).toHaveBeenNthCalledWith(2, '🔧 DEBUG\nдебаг');
-		expect(telegramService.sendMessage).toHaveBeenNthCalledWith(3, '💬 VERBOSE\nподробности');
+		expect(telegramService.sendMessage).toHaveBeenNthCalledWith(
+			1,
+			'🟡 <b>WARN</b>\n<pre>предупреждение</pre>',
+			{ parse_mode: 'HTML' },
+		);
+		expect(telegramService.sendMessage).toHaveBeenNthCalledWith(
+			2,
+			'💬 <b>VERBOSE</b>\n<pre>подробности</pre>',
+			{ parse_mode: 'HTML' },
+		);
+	});
+
+	it('не пересылает debug — это была временная диагностика, не штатный уровень', () => {
+		logger.debug('дебаг-сообщение');
+
+		expect(telegramService.sendMessage).not.toHaveBeenCalled();
+	});
+
+	it('экранирует HTML-спецсимволы в тексте сообщения', () => {
+		logger.log('оценка <10 && цена > 5', 'CdekService');
+
+		expect(telegramService.sendMessage).toHaveBeenCalledWith(
+			'ℹ️ <b>LOG</b> · <code>CdekService</code>\n<pre>оценка &lt;10 &amp;&amp; цена &gt; 5</pre>',
+			{ parse_mode: 'HTML' },
+		);
+	});
+
+	it('обрезает слишком длинные сообщения, не упираясь в лимит Telegram', () => {
+		logger.log('x'.repeat(5000), 'CdekService');
+
+		const [text] = telegramService.sendMessage.mock.calls[0] as [string];
+
+		expect(text.length).toBeLessThan(4096);
+		expect(text).toContain('обрезано');
 	});
 });
