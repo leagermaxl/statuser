@@ -43,33 +43,35 @@ export class TelegramLogger extends ConsoleLogger {
 	override error(message: unknown, ...rest: unknown[]): void {
 		super.error(message, ...rest);
 		const { context } = this.getContextAndStackAndMessagesToPrint([message, ...rest]);
-		this.forward('🔴', 'ERROR', message, context);
+		this.forward('🔴', 'ERROR', message, context, false);
 	}
 
 	override warn(message: unknown, ...rest: unknown[]): void {
 		super.warn(message, ...rest);
-		this.forward('🟡', 'WARN', message, this.extractContext(message, rest));
+		this.forward('🟡', 'WARN', message, this.extractContext(message, rest), false);
 	}
 
 	override log(message: unknown, ...rest: unknown[]): void {
 		super.log(message, ...rest);
-		this.forward('ℹ️', 'LOG', message, this.extractContext(message, rest));
+		this.forward('ℹ️', 'LOG', message, this.extractContext(message, rest), true);
 	}
 
 	override verbose(message: unknown, ...rest: unknown[]): void {
 		super.verbose(message, ...rest);
-		this.forward('💬', 'VERBOSE', message, this.extractContext(message, rest));
+		this.forward('💬', 'VERBOSE', message, this.extractContext(message, rest), true);
 	}
 
 	private extractContext(message: unknown, rest: unknown[]): string | undefined {
 		return this.getContextAndMessagesToPrint([message, ...rest]).context;
 	}
 
+	/** silent — без звука/пуша (log/verbose); warn/error всегда с обычным уведомлением. */
 	private forward(
 		emoji: string,
 		level: string,
 		message: unknown,
 		context: string | undefined,
+		silent: boolean,
 	): void {
 		if (context && SILENCED_CONTEXTS.has(context)) return;
 
@@ -83,6 +85,7 @@ export class TelegramLogger extends ConsoleLogger {
 		// не должно валить обработку запроса, которая и породила этот лог.
 		void this.telegramService.sendMessage(`${header}\n<pre>${body}</pre>`, {
 			parse_mode: 'HTML',
+			disable_notification: silent,
 		});
 	}
 }

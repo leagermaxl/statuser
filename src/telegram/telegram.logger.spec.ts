@@ -28,37 +28,37 @@ describe('TelegramLogger', () => {
 		},
 	);
 
-	it('пересылает log с обычным контекстом приложения в HTML-формате', () => {
+	it('пересылает log с обычным контекстом приложения в HTML-формате, без звука', () => {
 		logger.log('заказ обработан', 'CdekService');
 
 		expect(telegramService.sendMessage).toHaveBeenCalledWith(
 			'ℹ️ <b>LOG</b> · <code>CdekService</code>\n<pre>заказ обработан</pre>',
-			{ parse_mode: 'HTML' },
+			{ parse_mode: 'HTML', disable_notification: true },
 		);
 	});
 
-	it('пересылает error даже с контекстом, похожим на служебный, если он не в списке', () => {
+	it('пересылает error даже с контекстом, похожим на служебный, если он не в списке — с уведомлением', () => {
 		logger.error('что-то сломалось', undefined, 'MegagroupService');
 
 		expect(telegramService.sendMessage).toHaveBeenCalledWith(
 			'🔴 <b>ERROR</b> · <code>MegagroupService</code>\n<pre>что-то сломалось</pre>',
-			{ parse_mode: 'HTML' },
+			{ parse_mode: 'HTML', disable_notification: false },
 		);
 	});
 
-	it('пересылает warn/verbose без контекста как есть', () => {
+	it('пересылает warn с уведомлением, а verbose — беззвучно', () => {
 		logger.warn('предупреждение');
 		logger.verbose('подробности');
 
 		expect(telegramService.sendMessage).toHaveBeenNthCalledWith(
 			1,
 			'🟡 <b>WARN</b>\n<pre>предупреждение</pre>',
-			{ parse_mode: 'HTML' },
+			{ parse_mode: 'HTML', disable_notification: false },
 		);
 		expect(telegramService.sendMessage).toHaveBeenNthCalledWith(
 			2,
 			'💬 <b>VERBOSE</b>\n<pre>подробности</pre>',
-			{ parse_mode: 'HTML' },
+			{ parse_mode: 'HTML', disable_notification: true },
 		);
 	});
 
@@ -73,7 +73,7 @@ describe('TelegramLogger', () => {
 
 		expect(telegramService.sendMessage).toHaveBeenCalledWith(
 			'ℹ️ <b>LOG</b> · <code>CdekService</code>\n<pre>оценка &lt;10 &amp;&amp; цена &gt; 5</pre>',
-			{ parse_mode: 'HTML' },
+			{ parse_mode: 'HTML', disable_notification: true },
 		);
 	});
 
