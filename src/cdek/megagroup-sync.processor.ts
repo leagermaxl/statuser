@@ -31,9 +31,19 @@ export class MegagroupSyncProcessor extends WorkerHost {
 			);
 
 			try {
-				await this.megagroupService.updateOrderStatus(cdek_number, number, code);
+				const wasSynced = await this.megagroupService.updateOrderStatus(
+					cdek_number,
+					number,
+					code,
+				);
 
-				this.logger.log(`[SUCCESS] Заказ ${number} успешно обновлен в Megagroup`);
+				if (wasSynced) {
+					this.logger.log(`[SUCCESS] Заказ ${number} успешно обновлен в Megagroup`);
+				} else {
+					this.logger.log(
+						`[SKIPPED] Заказ ${number} — нефинальный статус, Megagroup не трогали`,
+					);
+				}
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : String(error);
 				const attempts = job.opts.attempts ?? 1;

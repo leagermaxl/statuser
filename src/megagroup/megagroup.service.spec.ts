@@ -5,7 +5,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import axios from 'axios';
 import { CookieJar } from 'tough-cookie';
 import { of, throwError } from 'rxjs';
-import { MegagroupService } from './megagroup.service';
+import { isFinalCdekStatus, MegagroupService } from './megagroup.service';
 
 jest.mock('axios-cookiejar-support', () => ({
 	// authenticate() оборачивает свой собственный axios-клиент через wrapper() —
@@ -229,7 +229,9 @@ describe('MegagroupService', () => {
 				.mockReturnValueOnce(of({ data: 'ok' }))
 				.mockReturnValueOnce(of({ data: 'ok' }));
 
-			await service.updateOrderStatus('cdek-1', 'ORDER-42', cdekCode);
+			await expect(service.updateOrderStatus('cdek-1', 'ORDER-42', cdekCode)).resolves.toBe(
+				true,
+			);
 
 			expect(httpService.request).toHaveBeenNthCalledWith(
 				2,
@@ -260,8 +262,10 @@ describe('MegagroupService', () => {
 			}
 		});
 
-		it('не трогает Megagroup для нефинальных статусов СДЕК (например, RECEIVED_AT_SHIPMENT_WAREHOUSE)', async () => {
-			await service.updateOrderStatus('cdek-1', 'ORDER-42', 'RECEIVED_AT_SHIPMENT_WAREHOUSE');
+		it('не трогает Megagroup для нефинальных статусов СДЕК (например, RECEIVED_AT_SHIPMENT_WAREHOUSE) и возвращает false', async () => {
+			await expect(
+				service.updateOrderStatus('cdek-1', 'ORDER-42', 'RECEIVED_AT_SHIPMENT_WAREHOUSE'),
+			).resolves.toBe(false);
 
 			expect(httpService.request).not.toHaveBeenCalled();
 			expect(cacheManager.get).not.toHaveBeenCalled();
@@ -298,4 +302,20 @@ describe('MegagroupService', () => {
 			);
 		});
 	});
+});
+
+describe('isFinalCdekStatus', () => {
+	it.each(['DELIVERED', 'POSTOMAT_RECEIVED', 'NOT_DELIVERED', 'INVALID'])(
+		'%s — финальный статус',
+		(code) => {
+			expect(isFinalCdekStatus(code)).toBe(true);
+		},
+	);
+
+	it.each(['RECEIVED_AT_SHIPMENT_WAREHOUSE', 'CREATED', 'SOME_UNKNOWN_CODE'])(
+		'%s — нефинальный статус',
+		(code) => {
+			expect(isFinalCdekStatus(code)).toBe(false);
+		},
+	);
 });

@@ -38,6 +38,18 @@ const CDEK_REFUSED_CODES = new Set([
 ]);
 
 /**
+ * СДЕК шлёт вебхук на каждую смену статуса (в пути, принят на складе и т.п.),
+ * а Megagroup интересуют только финальные (доставлен/отказ) — остальные
+ * MegagroupService.updateOrderStatus и так молча пропускает. Экспортируем
+ * отдельной функцией, чтобы CdekController мог отфильтровать нефинальные
+ * вебхуки ДО постановки в очередь BullMQ, а не гонять их через полный цикл
+ * джобы (добавили -> воркер прочитал -> обработал -> удалил) впустую.
+ */
+export function isFinalCdekStatus(cdekStatusCode: string): boolean {
+	return CDEK_DELIVERED_CODES.has(cdekStatusCode) || CDEK_REFUSED_CODES.has(cdekStatusCode);
+}
+
+/**
  * Сессия в CMS.S3 (cp21.megagroup.ru и т.п.) устроена так:
  *
  * 1. POST {MEGAGROUP_CABINET_URL}/user/login (email/password) -> ставит куку mcmsid
@@ -293,11 +305,16 @@ export class MegagroupService {
 		});
 	}
 
+	/**
+	 * Возвращает false, если статус СДЕК нефинальный и синхронизация с Megagroup
+	 * была пропущена (см. ниже) — вызывающая сторона (MegagroupSyncProcessor)
+	 * использует это, чтобы не залогировать пропуск как "успешно обновлено".
+	 */
 	async updateOrderStatus(
 		cdekNumber: string,
 		orderNumber: string,
 		cdekStatusCode: string,
-	): Promise<void> {
+	): Promise<boolean> {
 		const statusId = this.mapCdekStatusToMegagroupStatusId(cdekStatusCode);
 
 		// В Megagroup шлём только финальные статусы (доставлен/отказ) — промежуточные
@@ -308,7 +325,7 @@ export class MegagroupService {
 				`Megagroup: заказ ${orderNumber} (СДЕК ${cdekNumber}, код ${cdekStatusCode}) — ` +
 					'нефинальный статус, синхронизация с Megagroup пропущена',
 			);
-			return;
+			return false;
 		}
 
 		const shopId = this.configService.getOrThrow<string>('MEGAGROUP_SHOP_ID');
@@ -339,5 +356,7 @@ export class MegagroupService {
 			`Megagroup: заказ ${orderNumber} (order_id ${orderId}, СДЕК ${cdekNumber}) -> статус ${statusId}` +
 				(statusId === MegagroupOrderStatusId.COMPLETED ? ' (оплата отмечена)' : ''),
 		);
+
+		return true;
 	}
 }

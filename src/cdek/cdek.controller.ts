@@ -15,6 +15,7 @@ import { ApiOperation, ApiParam, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { HttpStatusCode } from 'axios';
 import { Queue } from 'bullmq';
 import { AdminAuthGuard } from '../common/guards/admin-auth.guard';
+import { isFinalCdekStatus } from '../megagroup/megagroup.service';
 import { CdekService } from './cdek.service';
 import { CreateOrderCdekDto } from './dto/order/create-order.dto';
 import { UpdateOrderCdekDto } from './dto/order/update-order.dto';
@@ -139,6 +140,14 @@ export class CdekController {
 		const cdek_number = payload.attributes.cdek_number;
 		const number = payload.attributes.number;
 		const code = payload.attributes.code;
+
+		// СДЕК шлёт вебхук на каждую смену статуса, а Megagroup интересуют только
+		// финальные (доставлен/отказ) — остальные MegagroupService и так пропускает,
+		// но незачем гонять их через полный цикл джобы BullMQ впустую.
+		if (!isFinalCdekStatus(code)) {
+			this.logger.log(`Заказ ${number}: нефинальный статус ${code} — в очередь не ставим`);
+			return { status: 'success' };
+		}
 
 		await this.syncQueue.add(
 			'update-status',
